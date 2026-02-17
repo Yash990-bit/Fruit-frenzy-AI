@@ -364,6 +364,61 @@ class Fruit:
         self.vy = min(self.vy, -2)
 
 
+class GiantFruit(Fruit):
+    """A massive fruit that requires multiple slices to destroy."""
+
+    def __init__(self, x=None):
+        super().__init__(x)
+        # Override properties for boss
+        self.radius = random.randint(100, 120)
+        self.points = 100
+        self.max_health = 10
+        self.health = self.max_health
+        self.vx *= 0.6  # Slower horizontal movement
+        self.vy = random.uniform(-14, -10) # Heavy/High toss
+        
+        self.hit_cooldown = 0.0
+        self.scale_pulse = 0.0
+
+        # Clear standard cache for this unique giant instance to avoid memory bloat with random radii
+        # Actually, Fruit._get_sprite uses radius as key. Unique large radii are fine.
+        # Force re-generation with current radius
+        self._sprite = self._get_sprite()
+        
+        # Pre-calc slices for final death
+        # We don't pre-calc slices for every hit, only death split
+        self._left_half, self._right_half = self._get_slice_sprites()
+
+    def update(self, dt: float, slow_factor: float = 1.0, magnet_pos=None, magnet_active=False):
+        super().update(dt, slow_factor, magnet_pos, magnet_active)
+        
+        if self.hit_cooldown > 0:
+            self.hit_cooldown -= dt
+
+        # Pulse effect when alive
+        if not self.sliced:
+            self.scale_pulse += dt * 5
+            
+    def check_slice(self, trail: list[tuple[int, int]]) -> bool:
+        if self.hit_cooldown > 0:
+            return False
+        return super().check_slice(trail)
+
+    def slice(self):
+        """Take damage. Only split if health <= 0."""
+        self.health -= 1
+        self.hit_cooldown = 0.15 # Small delay so one swipe = 1 hit usually
+        
+        if self.health <= 0:
+            self.sliced = True
+            self.vy = min(self.vy, -2)
+        else:
+            # Not dead yet – just took a hit
+            # Push it slightly up to juggle it?
+            self.vy -= 2
+            self.vx += random.uniform(-1, 1)
+
+
 # ── Fruit Manager ───────────────────────────────────────
 
 class FruitManager:
@@ -388,6 +443,18 @@ class FruitManager:
     def draw(self, surface: pygame.Surface):
         for f in self.fruits:
             f.draw(surface)
+            
+            # Draw health bar for Giant Fruit
+            if isinstance(f, GiantFruit) and not f.sliced:
+                # Simple bar above fruit
+                bar_w = 100
+                bar_h = 10
+                bx = f.x - bar_w // 2
+                by = f.y - f.radius - 20
+                pct = f.health / f.max_health
+                pygame.draw.rect(surface, (50, 50, 50), (bx, by, bar_w, bar_h))
+                pygame.draw.rect(surface, (255, 50, 50), (bx, by, bar_w * pct, bar_h))
+                pygame.draw.rect(surface, (255, 255, 255), (bx, by, bar_w, bar_h), 1)
 
     def increase_difficulty(self):
         self.spawn_interval = max(
@@ -400,6 +467,11 @@ class FruitManager:
         )
 
     def _spawn_batch(self):
+        # Chance for Giant Fruit (1%)
+        if random.random() < 0.01:
+            self.fruits.append(GiantFruit())
+            return # Skip normal batch if boss spawns
+
         count = random.randint(
             max(1, self.fruits_per_spawn - 1), self.fruits_per_spawn
         )

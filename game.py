@@ -11,7 +11,7 @@ import numpy as np
 import config as cfg
 
 from hand_tracker import HandTracker
-from fruit import FruitManager
+from fruit import FruitManager, GiantFruit
 from bomb import BombManager
 from powerups import PowerUpManager, PowerUpType
 from particles import ParticleSystem, SliceTrail, ScreenShake
@@ -33,6 +33,7 @@ class Game:
 
     def __init__(self):
         pygame.init()
+        # ... (unchanged init) ...
         self.screen = pygame.display.set_mode(
             (cfg.SCREEN_WIDTH, cfg.SCREEN_HEIGHT)
         )
@@ -112,9 +113,14 @@ class Game:
             cam_surface = self._frame_to_surface(frame)
             self.screen.blit(cam_surface, (0, 0))
 
-            # Dim background slightly for better contrast
+            # Dynamic background theme
             dim = pygame.Surface((cfg.SCREEN_WIDTH, cfg.SCREEN_HEIGHT), pygame.SRCALPHA)
-            dim.fill((0, 0, 0, 70))
+            if self.game_mode == cfg.MODE_ZEN:
+                dim.fill((50, 20, 50, 70)) # Zen: Purple/Pink tint
+            elif self.game_mode == cfg.MODE_ARCADE:
+                dim.fill((0, 0, 40, 70))   # Arcade: Blue tint
+            else:
+                dim.fill((0, 0, 0, 70))    # Classic: Standard dark
             self.screen.blit(dim, (0, 0))
 
             # State dispatch
@@ -130,8 +136,8 @@ class Game:
             pygame.display.flip()
 
         self._cleanup()
-
-    # ── State updates ───────────────────────────────────
+    
+    # ... (state updates unchanged) ...
 
     def _update_menu(self, dt: float):
         self.menu_pulse += dt
@@ -241,6 +247,18 @@ class Game:
             for fruit in self.fruit_mgr.fruits:
                 if fruit.check_slice(trail):
                     fruit.slice()
+                    
+                    # Handle Boss Fruit (Non-fatal hit)
+                    if isinstance(fruit, GiantFruit) and not fruit.sliced:
+                        self.sound.play_slice()
+                        self.particles.emit_slice(fruit.x, fruit.y, fruit.color) # Small particles
+                        # Small points per hit
+                        if hand_idx == 0: self.score_p1 += 5
+                        else: self.score_p2 += 5
+                        self.screen_shake.trigger(2, 0.1) # Tiny shake
+                        continue # Don't do full slice logic yet
+
+                    # Fatal slice (Normal fruit or final blow to Boss)
                     self.combo.register_slice()
                     mult = self.combo.get_multiplier()
                     pts = fruit.points * mult

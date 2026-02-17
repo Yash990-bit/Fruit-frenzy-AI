@@ -50,11 +50,59 @@ class Particle:
         surface.blit(p_surf, (int(self.x) - s, int(self.y) - s))
 
 
+class JuiceSplatter:
+    """A splatter of juice on the 'camera lens'."""
+
+    def __init__(self, x, y, color):
+        self.x = x
+        self.y = y
+        self.color = color
+        self.radius = random.randint(20, 50)
+        self.dripping = random.choice([True, False])
+        self.drip_speed = random.uniform(0.5, 2.0)
+        self.lifetime = random.uniform(2.0, 4.0)
+        self.age = 0.0
+        self.alive = True
+
+    def update(self, dt: float):
+        self.age += dt
+        if self.age >= self.lifetime:
+            self.alive = False
+            return
+        
+        if self.dripping:
+            self.y += self.drip_speed * (dt * 60)
+
+    def draw(self, surface: pygame.Surface):
+        if not self.alive:
+            return
+            
+        alpha = max(0, int(180 * (1 - self.age / self.lifetime)))
+        
+        # Main blob
+        surf = pygame.Surface((self.radius * 2, self.radius * 2 + 100), pygame.SRCALPHA)
+        pygame.draw.circle(surf, (*self.color[:3], alpha), (self.radius, self.radius), self.radius)
+        
+        # Drips
+        if self.dripping:
+             drip_len = int(self.age * 20 * self.drip_speed)
+             pygame.draw.line(surf, (*self.color[:3], alpha), 
+                              (self.radius, self.radius), 
+                              (self.radius, self.radius + drip_len), 
+                              int(self.radius * 0.4))
+             pygame.draw.circle(surf, (*self.color[:3], alpha), 
+                                (self.radius, self.radius + drip_len), 
+                                int(self.radius * 0.4))
+
+        surface.blit(surf, (int(self.x) - self.radius, int(self.y) - self.radius))
+
+
 class ParticleSystem:
     """Manages all active particles."""
 
     def __init__(self):
         self.particles: list[Particle] = []
+        self.splatters: list[JuiceSplatter] = []
 
     def emit(self, x, y, color, count=15, speed_range=(2, 8), lifetime=0.6):
         for _ in range(count):
@@ -65,6 +113,10 @@ class ParticleSystem:
     def emit_slice(self, x, y, color):
         """Emit juice particles for a fruit slice."""
         self.emit(x, y, color, count=cfg.PARTICLE_COUNT_SLICE, lifetime=cfg.PARTICLE_LIFETIME)
+        
+        # Random chance for screen splatter
+        if random.random() < 0.3:
+            self.splatters.append(JuiceSplatter(x, y, color))
 
     def emit_bomb(self, x, y):
         """Emit explosion particles for a bomb."""
@@ -86,10 +138,20 @@ class ParticleSystem:
         for p in self.particles:
             p.update(dt)
         self.particles = [p for p in self.particles if p.alive]
+        
+        for s in self.splatters:
+            s.update(dt)
+        self.splatters = [s for s in self.splatters if s.alive]
 
     def draw(self, surface: pygame.Surface):
+        # Draw world particles
         for p in self.particles:
             p.draw(surface)
+            
+        # Draw screen splatters (should be on top, but Game calls this. 
+        # Game might need to draw UI on top of this. Splatters are "lens" effects.
+        for s in self.splatters:
+            s.draw(surface)
 
 
 class SliceTrail:
