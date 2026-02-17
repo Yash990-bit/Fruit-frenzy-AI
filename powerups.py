@@ -1,6 +1,6 @@
 """
 FruitFrenzyAI – Power-Up System
-Special fruits: Fire, Ice, Lightning.
+Special fruits: Fire, Ice, Lightning, Magnet, Shield.
 """
 
 import random
@@ -13,26 +13,40 @@ class PowerUpType:
     FIRE = "fire"
     ICE = "ice"
     LIGHTNING = "lightning"
+    MAGNET = "magnet"
+    SHIELD = "shield"
 
 
 POWERUP_DEFS = {
     PowerUpType.FIRE: {
         "color": cfg.FIRE_COLOR,
         "glow": (255, 120, 30),
-        "label": "🔥",
+        "label": "F",
         "desc": "Auto-Slice!",
     },
     PowerUpType.ICE: {
         "color": cfg.ICE_COLOR,
         "glow": (100, 200, 255),
-        "label": "❄️",
+        "label": "I",
         "desc": "Slow Motion!",
     },
     PowerUpType.LIGHTNING: {
         "color": cfg.LIGHTNING_COLOR,
         "glow": (255, 255, 150),
-        "label": "⚡",
+        "label": "Z",
         "desc": "+50 Bonus!",
+    },
+    PowerUpType.MAGNET: {
+        "color": cfg.MAGNET_COLOR,
+        "glow": (200, 100, 255),
+        "label": "M",
+        "desc": "Magnet!",
+    },
+    PowerUpType.SHIELD: {
+        "color": cfg.SHIELD_COLOR,
+        "glow": (80, 255, 220),
+        "label": "S",
+        "desc": "Shield!",
     },
 }
 
@@ -40,10 +54,8 @@ POWERUP_DEFS = {
 class PowerUp:
     """A special power-up fruit."""
 
-    def __init__(self, x: float | None = None):
-        self.ptype = random.choice(
-            [PowerUpType.FIRE, PowerUpType.ICE, PowerUpType.LIGHTNING]
-        )
+    def __init__(self, x: float | None = None, ptype: str | None = None):
+        self.ptype = ptype or random.choice(list(POWERUP_DEFS.keys()))
         defn = POWERUP_DEFS[self.ptype]
         self.color = defn["color"]
         self.glow_color = defn["glow"]
@@ -72,7 +84,7 @@ class PowerUp:
         self._pulse += dt * 6
 
         if self.sliced:
-            self.alive = False  # consumed immediately
+            self.alive = False
 
         if self.y > cfg.SCREEN_HEIGHT + self.radius + 50 and not self.sliced:
             self.alive = False
@@ -93,17 +105,72 @@ class PowerUp:
         pygame.draw.circle(surface, self.color, (ix, iy), r)
         pygame.draw.circle(surface, cfg.WHITE, (ix, iy), r, 2)
 
-        # Inner star-burst pattern
-        for i in range(6):
-            a = self.angle + i * 60
-            ex = ix + int(r * 0.5 * math.cos(math.radians(a)))
-            ey = iy + int(r * 0.5 * math.sin(math.radians(a)))
-            pygame.draw.line(surface, cfg.WHITE, (ix, iy), (ex, ey), 2)
+        # Inner pattern based on type
+        if self.ptype == PowerUpType.FIRE:
+            # Flame tongues
+            for i in range(5):
+                a = self.angle + i * 72
+                flame_len = r * 0.6 + r * 0.15 * math.sin(self._pulse + i)
+                ex = ix + int(flame_len * math.cos(math.radians(a)))
+                ey = iy + int(flame_len * math.sin(math.radians(a)))
+                pygame.draw.line(surface, cfg.YELLOW, (ix, iy), (ex, ey), 3)
+            pygame.draw.circle(surface, cfg.YELLOW, (ix, iy), int(r * 0.3))
 
-        # Symbol text
-        font = pygame.font.SysFont("Segoe UI Emoji", int(r * 0.7))
+        elif self.ptype == PowerUpType.ICE:
+            # Snowflake arms
+            for i in range(6):
+                a = self.angle + i * 60
+                ex = ix + int(r * 0.6 * math.cos(math.radians(a)))
+                ey = iy + int(r * 0.6 * math.sin(math.radians(a)))
+                pygame.draw.line(surface, cfg.WHITE, (ix, iy), (ex, ey), 2)
+                # Branch
+                bx = ix + int(r * 0.35 * math.cos(math.radians(a)))
+                by = iy + int(r * 0.35 * math.sin(math.radians(a)))
+                bx2 = bx + int(r * 0.2 * math.cos(math.radians(a + 45)))
+                by2 = by + int(r * 0.2 * math.sin(math.radians(a + 45)))
+                pygame.draw.line(surface, cfg.WHITE, (bx, by), (bx2, by2), 1)
+
+        elif self.ptype == PowerUpType.LIGHTNING:
+            # Bolt shape
+            points = [
+                (ix - 5, iy - int(r * 0.5)),
+                (ix + 2, iy - 3),
+                (ix - 2, iy - 3),
+                (ix + 5, iy + int(r * 0.5)),
+                (ix - 1, iy + 3),
+                (ix + 1, iy + 3),
+            ]
+            pygame.draw.polygon(surface, cfg.WHITE, points)
+
+        elif self.ptype == PowerUpType.MAGNET:
+            # U-magnet shape
+            pygame.draw.arc(surface, cfg.WHITE,
+                            (ix - int(r * 0.4), iy - int(r * 0.2), int(r * 0.8), int(r * 0.6)),
+                            math.pi, 2 * math.pi, 3)
+            pygame.draw.line(surface, cfg.RED,
+                             (ix - int(r * 0.4), iy + int(r * 0.1)),
+                             (ix - int(r * 0.4), iy - int(r * 0.3)), 4)
+            pygame.draw.line(surface, cfg.BLUE,
+                             (ix + int(r * 0.4), iy + int(r * 0.1)),
+                             (ix + int(r * 0.4), iy - int(r * 0.3)), 4)
+
+        elif self.ptype == PowerUpType.SHIELD:
+            # Shield emblem
+            shield_pts = [
+                (ix, iy - int(r * 0.45)),
+                (ix - int(r * 0.35), iy - int(r * 0.2)),
+                (ix - int(r * 0.3), iy + int(r * 0.15)),
+                (ix, iy + int(r * 0.45)),
+                (ix + int(r * 0.3), iy + int(r * 0.15)),
+                (ix + int(r * 0.35), iy - int(r * 0.2)),
+            ]
+            pygame.draw.polygon(surface, cfg.WHITE, shield_pts, 2)
+            pygame.draw.polygon(surface, (*cfg.WHITE, 60), shield_pts)
+
+        # Label letter
+        font = pygame.font.SysFont("Arial", int(r * 0.45), bold=True)
         txt = font.render(self.label, True, cfg.WHITE)
-        surface.blit(txt, (ix - txt.get_width() // 2, iy - txt.get_height() // 2))
+        surface.blit(txt, (ix - txt.get_width() // 2, iy + int(r * 0.35)))
 
     def check_slice(self, trail: list[tuple[int, int]]) -> bool:
         if self.sliced or len(trail) < 2:

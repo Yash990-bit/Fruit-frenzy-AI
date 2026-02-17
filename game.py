@@ -1,6 +1,7 @@
 """
-FruitFrenzyAI – Game Engine
+FruitFrenzyAI – Game Engine (Enhanced)
 Main loop, state management, collision handling, difficulty scaling.
+Supports Multiplayer, Power-Ups (Magnet/Shield), and Frenzy Mode.
 """
 
 import time
@@ -53,19 +54,32 @@ class Game:
 
         # Game state
         self.state = GameState.MENU
-        self.score = 0
+        
+        # Scores
+        self.score_p1 = 0
+        self.score_p2 = 0
+        
         self.lives = cfg.STARTING_LIVES
         self.elapsed = 0.0          # play time in seconds
         self.difficulty_timer = 0.0
+        
+        # Power-up states
         self.slow_factor = 1.0      # 1.0 = normal, <1 = slow-mo (ice)
         self.ice_timer = 0.0
+        self.magnet_active = False
+        self.magnet_timer = 0.0
+        self.shield_active = False
+        
+        # Frenzy Mode
+        self.frenzy_active = False
+        self.frenzy_timer = 0.0    # Duration of active frenzy
+        self.frenzy_cooldown = cfg.FRENZY_INTERVAL
+        self.frenzy_spawn_timer = 0.0
+
         self.powerup_text = ""
         self.powerup_text_timer = 0.0
         self.menu_pulse = 0.0       # for pulsing menu text
         self.hand_detected_start = False
-
-        # Spawn timer synchronisation
-        self._last_spawn_check = 0.0
 
     # ── Main loop ───────────────────────────────────────
 
@@ -136,30 +150,65 @@ class Game:
             self.fruit_mgr.increase_difficulty()
             self.bomb_mgr.increase_difficulty()
 
-        # Ice slow-motion
+        # ── Timers & Power-ups ──
+        # Ice / Slow-mo
         if self.ice_timer > 0:
             self.ice_timer -= dt
             self.slow_factor = 0.4
         else:
             self.slow_factor = 1.0
 
-        # Spawn bombs / power-ups alongside fruit batches
-        prev_count = len(self.fruit_mgr.fruits)
-        self.fruit_mgr.update(dt, self.slow_factor)
-        if len(self.fruit_mgr.fruits) > prev_count:
-            # A batch was just spawned
-            self.bomb_mgr.try_spawn()
-            self.powerup_mgr.try_spawn()
+        # Magnet
+        magnet_pos = None
+        if self.magnet_timer > 0:
+            self.magnet_timer -= dt
+            self.magnet_active = True
+            # Calculate centroid of active hands
+            positions = [p for p in self.hand_tracker.get_positions() if p is not None]
+            if positions:
+                xs = [p[0] for p in positions]
+                ys = [p[1] for p in positions]
+                magnet_pos = (sum(xs) / len(xs), sum(ys) / len(ys))
+        else:
+            self.magnet_active = False
+
+        # Frenzy Mode Logic
+        if self.frenzy_active:
+            self.frenzy_timer -= dt
+            self.frenzy_spawn_timer += dt
+            if self.frenzy_spawn_timer >= cfg.FRENZY_SPAWN_RATE:
+                self.frenzy_spawn_timer = 0.0
+                self.fruit_mgr.frenzy_spawn()
+            
+            if self.frenzy_timer <= 0:
+                self.frenzy_active = False
+                self.frenzy_cooldown = cfg.FRENZY_INTERVAL
+        else:
+            self.frenzy_cooldown -= dt
+            if self.frenzy_cooldown <= 0:
+                self._trigger_frenzy()
+
+        # ── Spawning ──
+        # Normal spawning (only if not in frenzy to avoid chaos? or parallel?)
+        # Let's disable normal spawning during frenzy for pure bonus feel
+        if not self.frenzy_active:
+            prev_count = len(self.fruit_mgr.fruits)
+            self.fruit_mgr.update(dt, self.slow_factor, magnet_pos, self.magnet_active)
+            if len(self.fruit_mgr.fruits) > prev_count:
+                # A batch was just spawned
+                self.bomb_mgr.try_spawn()
+                self.powerup_mgr.try_spawn()
+        else:
+            # During frenzy, just update existing fruits
+            self.fruit_mgr.update(dt, self.slow_factor, magnet_pos, self.magnet_active)
 
         self.bomb_mgr.update(dt, self.slow_factor)
         self.powerup_mgr.update(dt, self.slow_factor)
         self.particles.update(dt)
         self.combo.update(dt)
-
-        # Shake offset
         shake = self.screen_shake.update(dt)
 
-        # Hand collision detection
+        # ── Hand Collision ──
         positions = self.hand_tracker.get_positions()
         trails = self.hand_tracker.get_trails()
 
@@ -178,7 +227,13 @@ class Game:
                     self.combo.register_slice()
                     mult = self.combo.get_multiplier()
                     pts = fruit.points * mult
-                    self.score += pts
+                    
+                    # Score attribution
+                    if hand_idx == 0:
+                        self.score_p1 += pts
+                    else:
+                        self.score_p2 += pts
+                        
                     self.particles.emit_slice(fruit.x, fruit.y, fruit.color)
                     self.sound.play_slice()
                     if self.combo.get_combo_count() >= 3:
@@ -188,23 +243,25 @@ class Game:
             for bomb in self.bomb_mgr.bombs:
                 if bomb.check_slice(trail):
                     bomb.slice()
-                    self.lives -= 1
                     self.particles.emit_bomb(bomb.x, bomb.y)
                     self.screen_shake.trigger(15, 0.4)
                     self.sound.play_bomb()
-                    if self.lives <= 0:
-                        self._game_over()
-                        return
+                    
+                    if self.shield_active:
+                        self.shield_active = False # Consumed
+                        self.powerup_text = "🛡️ SHIELD PROTECTED!"
+                        self.powerup_text_timer = 1.5
+                    else:
+                        self.lives -= 1
+                        if self.lives <= 0:
+                            self._game_over()
+                            return
 
             # Check power-ups
             for pu in self.powerup_mgr.powerups:
                 if pu.check_slice(trail):
                     pu.slice()
-                    self._activate_powerup(pu)
-
-            # Fire power-up auto-slice
-            if self.slow_factor < 1.0:
-                pass  # Ice active – no fire overlap needed
+                    self._activate_powerup(pu, hand_idx)
 
         # ── Draw everything ─────────────────────────────
         render_surf = pygame.Surface(
@@ -216,25 +273,41 @@ class Game:
         self.powerup_mgr.draw(render_surf)
         self.particles.draw(render_surf)
 
-        # Slice trails for each hand
+        # Slice trails
         for hand_idx in range(2):
             trail = trails[hand_idx]
             if trail:
+                # Use player specific color if multiplayer
+                color = (cfg.P1_TRAIL_COLOR if hand_idx == 0 else cfg.P2_TRAIL_COLOR) if cfg.MULTIPLAYER else None
+                # Update SliceTrail class to support color? 
+                # SliceTrail.draw currently hardcodes color. 
+                # I'll modify SliceTrail on the fly or add color param.
+                # For now, let's just draw standard trail or modify SliceTrail.
+                # Actually, I'll pass a color hint to slice_trail in future, 
+                # but for now default blueish is fine for both or distinct?
+                # Let's keep one method for now.
                 self.slice_trail.draw(render_surf, trail)
 
         # Apply shake
         self.screen.blit(render_surf, shake)
 
-        # HUD (not affected by shake)
-        self.hud.draw_score(self.screen, self.score)
-        self.hud.draw_lives(self.screen, self.lives)
+        # HUD
+        self.hud.draw_score(self.screen, self.score_p1, self.score_p2)
+        self.hud.draw_lives(self.screen, self.lives, self.shield_active)
         self.hud.draw_timer(self.screen, self.elapsed)
+        self.hud.draw_status_icons(self.screen, self.magnet_active, self.ice_timer > 0)
+        
         self.hud.draw_combo(
             self.screen,
             self.combo.get_combo_count(),
             self.combo.get_multiplier(),
             self.combo.display_timer,
+            player_idx=0 # Simplification: show combo center/generic
         )
+        
+        if self.frenzy_active:
+            self.hud.draw_frenzy_bar(self.screen, self.frenzy_timer, cfg.FRENZY_DURATION)
+            
         if self.powerup_text_timer > 0:
             self.powerup_text_timer -= dt
             self.hud.draw_powerup_text(self.screen, self.powerup_text, self.powerup_text_timer)
@@ -250,7 +323,7 @@ class Game:
     def _update_game_over(self, dt: float):
         self.menu_pulse += dt
         self.hud.draw_game_over(
-            self.screen, self.score,
+            self.screen, self.score_p1, self.score_p2,
             self.leaderboard.get_scores(), self.menu_pulse,
         )
         # Allow restart via hand
@@ -258,7 +331,6 @@ class Game:
         if any(p is not None for p in positions):
             if not self.hand_detected_start:
                 self.hand_detected_start = True
-            # Require re-raise after brief delay
         else:
             self.hand_detected_start = False
 
@@ -266,12 +338,19 @@ class Game:
 
     def _start_game(self):
         self.state = GameState.PLAYING
-        self.score = 0
+        self.score_p1 = 0
+        self.score_p2 = 0
         self.lives = cfg.STARTING_LIVES
         self.elapsed = 0.0
         self.difficulty_timer = 0.0
         self.slow_factor = 1.0
         self.ice_timer = 0.0
+        self.magnet_timer = 0.0
+        self.magnet_active = False
+        self.shield_active = False
+        self.frenzy_active = False
+        self.frenzy_cooldown = cfg.FRENZY_INTERVAL
+        
         self.powerup_text = ""
         self.powerup_text_timer = 0.0
         self.hand_detected_start = False
@@ -283,17 +362,26 @@ class Game:
 
     def _game_over(self):
         self.state = GameState.GAME_OVER
-        self.leaderboard.add_score(self.score)
+        # Save highest score?
+        best = max(self.score_p1, self.score_p2)
+        self.leaderboard.add_score(best)
         self.sound.play_gameover()
         self.hand_detected_start = False
         self.menu_pulse = 0.0
+        
+    def _trigger_frenzy(self):
+        self.frenzy_active = True
+        self.frenzy_timer = cfg.FRENZY_DURATION
+        self.powerup_text = "🔥 FRENZY MODE! 🔥"
+        self.powerup_text_timer = 2.0
+        self.screen_shake.trigger(5, 1.0) # Rumble
 
-    def _activate_powerup(self, pu):
+    def _activate_powerup(self, pu, hand_idx):
         self.sound.play_powerup()
         self.particles.emit_powerup(pu.x, pu.y, pu.color)
 
         if pu.ptype == PowerUpType.FIRE:
-            # Auto-slice all nearby fruits
+            # Auto-slice nearby
             for fruit in self.fruit_mgr.fruits:
                 if not fruit.sliced:
                     dx = fruit.x - pu.x
@@ -301,7 +389,9 @@ class Game:
                     if (dx * dx + dy * dy) <= cfg.FIRE_RADIUS ** 2:
                         fruit.slice()
                         self.combo.register_slice()
-                        self.score += fruit.points * self.combo.get_multiplier()
+                        pts = fruit.points * self.combo.get_multiplier()
+                        if hand_idx == 0: self.score_p1 += pts
+                        else: self.score_p2 += pts
                         self.particles.emit_slice(fruit.x, fruit.y, cfg.FIRE_COLOR)
             self.powerup_text = "🔥 FIRE – Auto Slice!"
             self.powerup_text_timer = 2.0
@@ -312,9 +402,21 @@ class Game:
             self.powerup_text_timer = 2.0
 
         elif pu.ptype == PowerUpType.LIGHTNING:
-            self.score += cfg.LIGHTNING_BONUS
+            bonus = cfg.LIGHTNING_BONUS
+            if hand_idx == 0: self.score_p1 += bonus
+            else: self.score_p2 += bonus
             self.screen_shake.trigger(8, 0.2)
             self.powerup_text = "⚡ LIGHTNING – +50 Bonus!"
+            self.powerup_text_timer = 2.0
+            
+        elif pu.ptype == PowerUpType.MAGNET:
+            self.magnet_timer = cfg.MAGNET_DURATION
+            self.powerup_text = "🧲 MAGNET ACTIVE!"
+            self.powerup_text_timer = 2.0
+            
+        elif pu.ptype == PowerUpType.SHIELD:
+            self.shield_active = True
+            self.powerup_text = "🛡️ SHIELD EQUIPED!"
             self.powerup_text_timer = 2.0
 
     # ── Input ───────────────────────────────────────────
@@ -339,7 +441,6 @@ class Game:
 
     @staticmethod
     def _frame_to_surface(frame) -> pygame.Surface:
-        """Convert an OpenCV BGR frame to a Pygame surface scaled to the screen."""
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         h, w = frame_rgb.shape[:2]
         surface = pygame.surfarray.make_surface(

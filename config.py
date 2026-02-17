@@ -83,6 +83,23 @@ STARTING_LIVES = 3
 # ── Power-up durations ──────────────────────────────────
 ICE_DURATION = 3.0                    # seconds
 FIRE_RADIUS = 120                     # pixels – auto-slice radius
+MAGNET_DURATION = 3.0                 # seconds
+MAGNET_STRENGTH = 2.0                 # attraction force multiplier
+MAGNET_COLOR = (180, 50, 255)
+SHIELD_COLOR = (0, 220, 180)
+
+# ── Frenzy mode ─────────────────────────────────────────
+FRENZY_INTERVAL = 60                  # seconds between frenzy triggers
+FRENZY_DURATION = 5.0                 # seconds of frenzy
+FRENZY_SPAWN_RATE = 0.15              # spawn interval during frenzy
+FRENZY_FRUITS_PER_SPAWN = 6           # fruits per frenzy burst
+
+# ── Multiplayer ─────────────────────────────────────────
+MULTIPLAYER = True                    # two hands = two players
+P1_COLOR = (50, 150, 255)             # blue tint
+P2_COLOR = (255, 80, 80)              # red tint
+P1_TRAIL_COLOR = (100, 180, 255)
+P2_TRAIL_COLOR = (255, 130, 130)
 
 # ── Hand tracking ───────────────────────────────────────
 TRAIL_LENGTH = 20                     # points to keep for slice trail

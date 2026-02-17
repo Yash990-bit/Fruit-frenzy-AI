@@ -5,6 +5,7 @@ Compatible with mediapipe >= 0.10.9 (Tasks API).
 """
 
 import os
+import ssl
 import urllib.request
 import cv2
 import numpy as np
@@ -28,7 +29,18 @@ def _ensure_model():
     os.makedirs(cfg.ASSETS_DIR, exist_ok=True)
     if not os.path.exists(_MODEL_PATH):
         print("⏳ Downloading hand-landmarker model (~12 MB)…")
-        urllib.request.urlretrieve(_MODEL_URL, _MODEL_PATH)
+        try:
+            urllib.request.urlretrieve(_MODEL_URL, _MODEL_PATH)
+        except urllib.error.URLError:
+            # macOS often lacks default SSL certs for Python – fall back
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            opener = urllib.request.build_opener(
+                urllib.request.HTTPSHandler(context=ctx)
+            )
+            with opener.open(_MODEL_URL) as resp, open(_MODEL_PATH, "wb") as f:
+                f.write(resp.read())
         print("✅ Model downloaded.")
 
 
