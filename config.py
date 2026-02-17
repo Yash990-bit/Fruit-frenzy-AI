@@ -8,6 +8,15 @@ SCREEN_HEIGHT = 600
 FPS = 60
 GAME_TITLE = "FruitFrenzy AI – Fruit Ninja"
 
+# ── Game Modes ────────────────────────────────────────────
+MODE_CLASSIC = "classic"
+MODE_ZEN = "zen"
+MODE_ARCADE = "arcade"
+
+# ── Arcade Settings ─────────────────────────────────────
+ARCADE_DURATION = 60.0                # seconds
+ARCADE_BOMB_PENALTY = 10              # points lost instead of life
+
 # ── Colors ──────────────────────────────────────────────
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
@@ -46,18 +55,18 @@ ICE_COLOR = (0, 191, 255)
 LIGHTNING_COLOR = (255, 255, 0)
 
 # ── Physics ─────────────────────────────────────────────
-GRAVITY = 0.35
+GRAVITY = 0.45                        # faster fall (was 0.35)
 FRUIT_RADIUS_MIN = 28
 FRUIT_RADIUS_MAX = 42
-FRUIT_SPEED_Y_MIN = -13
-FRUIT_SPEED_Y_MAX = -9
-FRUIT_SPEED_X_MIN = -3
-FRUIT_SPEED_X_MAX = 3
+FRUIT_SPEED_Y_MIN = -16               # higher throw (was -13)
+FRUIT_SPEED_Y_MAX = -12               # higher throw (was -9)
+FRUIT_SPEED_X_MIN = -4
+FRUIT_SPEED_X_MAX = 4
 FRUIT_ANGULAR_SPEED_MIN = -5
 FRUIT_ANGULAR_SPEED_MAX = 5
 
 # ── Spawning ────────────────────────────────────────────
-INITIAL_SPAWN_INTERVAL = 1.2          # seconds between spawn batches
+INITIAL_SPAWN_INTERVAL = 1.0          # slightly faster spawns (was 1.2)
 MIN_SPAWN_INTERVAL = 0.4
 INITIAL_FRUITS_PER_SPAWN = 2
 MAX_FRUITS_PER_SPAWN = 6

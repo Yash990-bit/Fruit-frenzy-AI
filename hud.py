@@ -1,7 +1,7 @@
 """
 FruitFrenzyAI – HUD & Menu Screens (Enhanced)
 Renders score, lives, combos, power-up statuses, frenzy mode, and menu/game-over screens.
-Supports single and multiplayer layouts.
+Supports single and multiplayer layouts, plus Zen and Arcade modes.
 """
 
 import math
@@ -104,9 +104,7 @@ class HUD:
         final.blit(combo_surf, (0, 0))
         final.set_alpha(alpha)
 
-        # Position based on player? or just center for simplicity
-        # If multiplayer, maybe offset slightly left/right? 
-        # For now, keep center but color-coded.
+        # Position
         x = cfg.SCREEN_WIDTH // 2 - sw // 2
         y = cfg.SCREEN_HEIGHT // 2 - sh // 2 - 60
         if cfg.MULTIPLAYER:
@@ -147,17 +145,48 @@ class HUD:
         x = cfg.SCREEN_WIDTH // 2 - txt.get_width() // 2
         surface.blit(txt, (x, cfg.SCREEN_HEIGHT // 2 + 20))
 
-    def draw_timer(self, surface: pygame.Surface, elapsed: float):
-        mins = int(elapsed) // 60
-        secs = int(elapsed) % 60
-        txt = self.font_small.render(f"{mins:02d}:{secs:02d}", True, cfg.WHITE)
-        shadow = self.font_small.render(f"{mins:02d}:{secs:02d}", True, cfg.BLACK)
-        surface.blit(shadow, (cfg.SCREEN_WIDTH // 2 - txt.get_width() // 2 + 1, 16))
-        surface.blit(txt, (cfg.SCREEN_WIDTH // 2 - txt.get_width() // 2, 15))
+    def draw_timer(self, surface: pygame.Surface, elapsed: float, is_countdown: bool = False):
+        if is_countdown:
+            # Arcade countdown
+            secs = max(0, int(elapsed))
+            color = cfg.RED if secs < 10 else cfg.WHITE
+            txt_str = f"{secs}"
+            
+            # Draw large in center-top
+            font = self.font_large
+            txt = font.render(txt_str, True, color)
+            shadow = font.render(txt_str, True, cfg.BLACK)
+            
+            x = cfg.SCREEN_WIDTH // 2 - txt.get_width() // 2
+            surface.blit(shadow, (x + 2, 22))
+            surface.blit(txt, (x, 20))
+        else:
+            # Classic elapsed time
+            mins = int(elapsed) // 60
+            secs = int(elapsed) % 60
+            txt = self.font_small.render(f"{mins:02d}:{secs:02d}", True, cfg.WHITE)
+            shadow = self.font_small.render(f"{mins:02d}:{secs:02d}", True, cfg.BLACK)
+            surface.blit(shadow, (cfg.SCREEN_WIDTH // 2 - txt.get_width() // 2 + 1, 16))
+            surface.blit(txt, (cfg.SCREEN_WIDTH // 2 - txt.get_width() // 2, 15))
+
+    def draw_mode_indicator(self, surface: pygame.Surface, mode: str):
+        # Draw mode name in corner
+        if mode == cfg.MODE_ZEN:
+            txt_str = "🌸 ZEN CRUSHER"
+            color = (255, 180, 220)
+        elif mode == cfg.MODE_ARCADE:
+            txt_str = "⚡ ARCADE RUSH"
+            color = (255, 220, 50)
+        else:
+            return # No indicator for Classic
+
+        txt = self.font_small.render(txt_str, True, color)
+        surface.blit(txt, (cfg.SCREEN_WIDTH // 2 - txt.get_width() // 2, 50))
+
 
     # ── Menu Screens ────────────────────────────────────
 
-    def draw_start_screen(self, surface: pygame.Surface, pulse: float):
+    def draw_start_screen(self, surface: pygame.Surface, pulse: float, selected_mode: str):
         overlay = pygame.Surface((cfg.SCREEN_WIDTH, cfg.SCREEN_HEIGHT), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 160))
         surface.blit(overlay, (0, 0))
@@ -166,36 +195,45 @@ class HUD:
         title = self.font_title.render("FRUIT FRENZY", True, cfg.YELLOW)
         shadow = self.font_title.render("FRUIT FRENZY", True, cfg.DARK_RED)
         cx = cfg.SCREEN_WIDTH // 2
-        surface.blit(shadow, (cx - title.get_width() // 2 + 3, 123))
-        surface.blit(title, (cx - title.get_width() // 2, 120))
+        surface.blit(shadow, (cx - title.get_width() // 2 + 3, 103))
+        surface.blit(title, (cx - title.get_width() // 2, 100))
 
-        # AI subtitle
-        sub = self.font_medium.render("AI Hand-Controlled", True, cfg.LIGHT_BLUE)
-        surface.blit(sub, (cx - sub.get_width() // 2, 195))
+        # Mode Selection
+        modes = [
+            ("1. CLASSIC", cfg.MODE_CLASSIC),
+            ("2. ZEN MODE", cfg.MODE_ZEN),
+            ("3. ARCADE", cfg.MODE_ARCADE),
+        ]
+        
+        y_start = 200
+        for i, (label, mode_key) in enumerate(modes):
+            color = cfg.GREEN if mode_key == selected_mode else cfg.GREY
+            if mode_key == selected_mode:
+                label = "► " + label + " ◄"
+                
+            txt = self.font_medium.render(label, True, color)
+            surface.blit(txt, (cx - txt.get_width() // 2, y_start + i * 50))
 
         # Pulsing start text
         alpha = int(128 + 127 * math.sin(pulse * 3))
-        start_txt = self.font_subtitle.render("✋  Raise your hand to start  ✋", True, cfg.WHITE)
+        start_txt = self.font_subtitle.render("✋ Raise Hand or SPACE to Start ✋", True, cfg.WHITE)
         start_txt.set_alpha(alpha)
-        surface.blit(start_txt, (cx - start_txt.get_width() // 2, 300))
-
-        # Instructions
-        instructions = [
-            "🍉  Swipe to slice fruits",
-            "💣  Avoid bombs!",
-            "⚡  Collect power-ups for bonuses",
-            "🔥  Chain slices for combos",
-        ]
-        if cfg.MULTIPLAYER:
-            instructions.append("🎮  2 Players: Hand 1 = P1, Hand 2 = P2")
+        surface.blit(start_txt, (cx - start_txt.get_width() // 2, 400))
+        
+        # Mode Instructions
+        if selected_mode == cfg.MODE_ZEN:
+            desc = "No Bombs • No Lives • Pure Relaxation"
+        elif selected_mode == cfg.MODE_ARCADE:
+            desc = "60 Seconds • High Speed • Score Attack"
+        else:
+            desc = "3 Lives • Avoid Bombs • Survive!"
             
-        for i, line in enumerate(instructions):
-            txt = self.font_small.render(line, True, cfg.WHITE)
-            surface.blit(txt, (cx - txt.get_width() // 2, 380 + i * 35))
+        desc_txt = self.font_small.render(desc, True, cfg.LIGHT_BLUE)
+        surface.blit(desc_txt, (cx - desc_txt.get_width() // 2, 450))
 
-        # Press space hint
-        hint = self.font_small.render("or press SPACE to start", True, cfg.GREY)
-        surface.blit(hint, (cx - hint.get_width() // 2, 580))
+        # Controls hint
+        hint = self.font_small.render("Press 1, 2, or 3 to select mode", True, cfg.GREY)
+        surface.blit(hint, (cx - hint.get_width() // 2, 560))
 
     def draw_game_over(self, surface: pygame.Surface, score_p1: int, score_p2: int, high_scores: list[int], pulse: float):
         overlay = pygame.Surface((cfg.SCREEN_WIDTH, cfg.SCREEN_HEIGHT), pygame.SRCALPHA)

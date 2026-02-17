@@ -1,7 +1,7 @@
 """
 FruitFrenzyAI – Game Engine (Enhanced)
 Main loop, state management, collision handling, difficulty scaling.
-Supports Multiplayer, Power-Ups (Magnet/Shield), and Frenzy Mode.
+Supports Multiplayer, Power-Ups (Magnet/Shield), Frenzy Mode, and Game Modes (Zen/Arcade).
 """
 
 import time
@@ -54,6 +54,7 @@ class Game:
 
         # Game state
         self.state = GameState.MENU
+        self.game_mode = cfg.MODE_CLASSIC
         
         # Scores
         self.score_p1 = 0
@@ -61,6 +62,10 @@ class Game:
         
         self.lives = cfg.STARTING_LIVES
         self.elapsed = 0.0          # play time in seconds
+        
+        # Arcade Timer
+        self.arcade_time_left = cfg.ARCADE_DURATION
+        
         self.difficulty_timer = 0.0
         
         # Power-up states
@@ -130,7 +135,7 @@ class Game:
 
     def _update_menu(self, dt: float):
         self.menu_pulse += dt
-        self.hud.draw_start_screen(self.screen, self.menu_pulse)
+        self.hud.draw_start_screen(self.screen, self.menu_pulse, self.game_mode)
 
         # Detect hand to start
         positions = self.hand_tracker.get_positions()
@@ -143,6 +148,14 @@ class Game:
     def _update_playing(self, dt: float):
         self.elapsed += dt
         self.difficulty_timer += dt
+        
+        # Arcade Timer
+        if self.game_mode == cfg.MODE_ARCADE:
+            self.arcade_time_left -= dt
+            if self.arcade_time_left <= 0:
+                self.arcade_time_left = 0
+                self._game_over()
+                return
 
         # Difficulty ramp
         if self.difficulty_timer >= cfg.DIFFICULTY_INCREASE_INTERVAL:
@@ -196,7 +209,11 @@ class Game:
             self.fruit_mgr.update(dt, self.slow_factor, magnet_pos, self.magnet_active)
             if len(self.fruit_mgr.fruits) > prev_count:
                 # A batch was just spawned
-                self.bomb_mgr.try_spawn()
+                
+                # Bomb logic based on mode
+                if self.game_mode != cfg.MODE_ZEN:
+                     self.bomb_mgr.try_spawn()
+                     
                 self.powerup_mgr.try_spawn()
         else:
             # During frenzy, just update existing fruits
@@ -247,15 +264,24 @@ class Game:
                     self.screen_shake.trigger(15, 0.4)
                     self.sound.play_bomb()
                     
-                    if self.shield_active:
-                        self.shield_active = False # Consumed
-                        self.powerup_text = "🛡️ SHIELD PROTECTED!"
-                        self.powerup_text_timer = 1.5
-                    else:
-                        self.lives -= 1
-                        if self.lives <= 0:
-                            self._game_over()
-                            return
+                    if self.game_mode == cfg.MODE_ARCADE:
+                        # Penalty score instead of death
+                        penalty = cfg.ARCADE_BOMB_PENALTY
+                        if hand_idx == 0: self.score_p1 = max(0, self.score_p1 - penalty)
+                        else: self.score_p2 = max(0, self.score_p2 - penalty)
+                        self.powerup_text = f"💣 -{penalty} Points!"
+                        self.powerup_text_timer = 1.0
+                        
+                    elif self.game_mode == cfg.MODE_CLASSIC:
+                        if self.shield_active:
+                            self.shield_active = False # Consumed
+                            self.powerup_text = "🛡️ SHIELD PROTECTED!"
+                            self.powerup_text_timer = 1.5
+                        else:
+                            self.lives -= 1
+                            if self.lives <= 0:
+                                self._game_over()
+                                return
 
             # Check power-ups
             for pu in self.powerup_mgr.powerups:
@@ -278,14 +304,7 @@ class Game:
             trail = trails[hand_idx]
             if trail:
                 # Use player specific color if multiplayer
-                color = (cfg.P1_TRAIL_COLOR if hand_idx == 0 else cfg.P2_TRAIL_COLOR) if cfg.MULTIPLAYER else None
-                # Update SliceTrail class to support color? 
-                # SliceTrail.draw currently hardcodes color. 
-                # I'll modify SliceTrail on the fly or add color param.
-                # For now, let's just draw standard trail or modify SliceTrail.
-                # Actually, I'll pass a color hint to slice_trail in future, 
-                # but for now default blueish is fine for both or distinct?
-                # Let's keep one method for now.
+                # color = (cfg.P1_TRAIL_COLOR if hand_idx == 0 else cfg.P2_TRAIL_COLOR) if cfg.MULTIPLAYER else None
                 self.slice_trail.draw(render_surf, trail)
 
         # Apply shake
@@ -293,8 +312,16 @@ class Game:
 
         # HUD
         self.hud.draw_score(self.screen, self.score_p1, self.score_p2)
-        self.hud.draw_lives(self.screen, self.lives, self.shield_active)
-        self.hud.draw_timer(self.screen, self.elapsed)
+        
+        # Only draw lives in Classic mode
+        if self.game_mode == cfg.MODE_CLASSIC:
+             self.hud.draw_lives(self.screen, self.lives, self.shield_active)
+        
+        # Draw Timer
+        is_arcade = (self.game_mode == cfg.MODE_ARCADE)
+        display_time = self.arcade_time_left if is_arcade else self.elapsed
+        self.hud.draw_timer(self.screen, display_time, is_countdown=is_arcade)
+        
         self.hud.draw_status_icons(self.screen, self.magnet_active, self.ice_timer > 0)
         
         self.hud.draw_combo(
@@ -302,7 +329,7 @@ class Game:
             self.combo.get_combo_count(),
             self.combo.get_multiplier(),
             self.combo.display_timer,
-            player_idx=0 # Simplification: show combo center/generic
+            player_idx=0
         )
         
         if self.frenzy_active:
@@ -311,6 +338,9 @@ class Game:
         if self.powerup_text_timer > 0:
             self.powerup_text_timer -= dt
             self.hud.draw_powerup_text(self.screen, self.powerup_text, self.powerup_text_timer)
+
+        # Mode Indicator
+        self.hud.draw_mode_indicator(self.screen, self.game_mode)
 
         # Ice tint overlay
         if self.ice_timer > 0:
@@ -342,6 +372,7 @@ class Game:
         self.score_p2 = 0
         self.lives = cfg.STARTING_LIVES
         self.elapsed = 0.0
+        self.arcade_time_left = cfg.ARCADE_DURATION
         self.difficulty_timer = 0.0
         self.slow_factor = 1.0
         self.ice_timer = 0.0
@@ -364,6 +395,7 @@ class Game:
         self.state = GameState.GAME_OVER
         # Save highest score?
         best = max(self.score_p1, self.score_p2)
+        # Maybe separate leaderboard for modes later? For now shared.
         self.leaderboard.add_score(best)
         self.sound.play_gameover()
         self.hand_detected_start = False
@@ -435,6 +467,16 @@ class Game:
                 self._start_game()
             elif self.state == GameState.GAME_OVER:
                 self._start_game()
+        
+        # Mode Selection in Menu
+        elif self.state == GameState.MENU:
+            if key == pygame.K_1:
+                self.game_mode = cfg.MODE_CLASSIC
+            elif key == pygame.K_2:
+                self.game_mode = cfg.MODE_ZEN
+            elif key == pygame.K_3:
+                self.game_mode = cfg.MODE_ARCADE
+                
         return True
 
     # ── Helpers ─────────────────────────────────────────
